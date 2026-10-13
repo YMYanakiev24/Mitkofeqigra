@@ -1,0 +1,616 @@
+ 
+<!DOCTYPE html>
+<html lang="bg">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mitko the Fairy</title>
+ 
+<style>
+* {
+    box-sizing: border-box;
+}
+ 
+body {
+    margin: 0;
+    background: #100b20;
+    color: white;
+    font-family: Arial, sans-serif;
+    text-align: center;
+}
+ 
+h1 {
+    color: #ff83e8;
+    text-shadow: 0 0 15px #bd40ff;
+}
+ 
+#hud {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 20px;
+    margin: 15px;
+    font-weight: bold;
+}
+ 
+canvas {
+    display: block;
+    width: min(95vw, 800px);
+    height: auto;
+    margin: auto;
+    border: 3px solid #bb65ff;
+    border-radius: 12px;
+    background: #244b42;
+}
+ 
+button {
+    background: #a947ff;
+    color: white;
+    border: none;
+    padding: 13px 18px;
+    margin: 5px;
+    border-radius: 10px;
+    font-size: 18px;
+    font-weight: bold;
+    cursor: pointer;
+    touch-action: none;
+}
+ 
+button:active {
+    background: #ed68da;
+}
+ 
+#controls {
+    display: grid;
+    grid-template-columns: repeat(3, 65px);
+    justify-content: center;
+    gap: 5px;
+    margin: 15px;
+}
+ 
+#controls button {
+    font-size: 24px;
+}
+ 
+#message {
+    color: #ffe38a;
+    min-height: 24px;
+}
+</style>
+</head>
+ 
+<body>
+ 
+<h1>🧚 MITKO THE FAIRY</h1>
+<p>Летящият крал на пътя!</p>
+ 
+<div id="hud">
+    <span>💰 €<span id="money">0</span></span>
+    <span>🚛 Шофьори: <span id="rescued">0</span></span>
+    <span>✨ Магия: <span id="magic">100</span>%</span>
+</div>
+ 
+<canvas id="game" width="800" height="500"></canvas>
+ 
+<p id="message">Намери шофьор и го заведи до кемпера!</p>
+ 
+<div id="controls">
+    <span></span>
+    <button data-dir="up">⬆️</button>
+    <span></span>
+    <button data-dir="left">⬅️</button>
+    <button data-dir="down">⬇️</button>
+    <button data-dir="right">➡️</button>
+</div>
+ 
+<button id="start">▶ Нова игра</button>
+<button id="upgrade">✨ По-бързи крила (€50)</button>
+ 
+<p>Управление: WASD, стрелките или бутоните.</p>
+ 
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+ 
+const moneyEl = document.getElementById("money");
+const rescuedEl = document.getElementById("rescued");
+const magicEl = document.getElementById("magic");
+const message = document.getElementById("message");
+ 
+const keys = {};
+ 
+let money = 0;
+let rescued = 0;
+let magic = 100;
+let running = false;
+let lastTime = 0;
+let spawnTimer = 0;
+let carrying = false;
+let upgradeLevel = 1;
+let bob = 0;
+ 
+const player = {
+    x: 100,
+    y: 250,
+    speed: 190
+};
+ 
+const camper = {
+    x: 680,
+    y: 250
+};
+ 
+let truckers = [];
+let particles = [];
+ 
+function random(min, max) {
+    return Math.random() * (max - min) + min;
+}
+ 
+function spawnTrucker() {
+    if (truckers.length >= 5) return;
+ 
+    const side = Math.floor(Math.random() * 4);
+    let x, y;
+ 
+    if (side === 0) {
+        x = random(30, 770);
+        y = 40;
+    } else if (side === 1) {
+        x = random(30, 770);
+        y = 460;
+    } else if (side === 2) {
+        x = 30;
+        y = random(50, 450);
+    } else {
+        x = 770;
+        y = random(50, 450);
+    }
+ 
+    truckers.push({
+        x,
+        y,
+        color: ["#ffba72", "#7bdfff", "#b8ff9b"][
+            Math.floor(Math.random() * 3)
+        ]
+    });
+}
+ 
+function drawBackground() {
+    ctx.fillStyle = "#244b42";
+    ctx.fillRect(0, 0, 800, 500);
+ 
+    // Път
+    ctx.fillStyle = "#38394b";
+    ctx.fillRect(0, 205, 800, 90);
+    ctx.fillRect(350, 0, 100, 500);
+ 
+    // Пътна маркировка
+    ctx.strokeStyle = "#e8d9a1";
+    ctx.lineWidth = 3;
+    ctx.setLineDash([20, 20]);
+ 
+    ctx.beginPath();
+    ctx.moveTo(0, 250);
+    ctx.lineTo(800, 250);
+    ctx.moveTo(400, 0);
+    ctx.lineTo(400, 500);
+    ctx.stroke();
+ 
+    ctx.setLineDash([]);
+ 
+    // Цветя
+    for (let i = 0; i < 35; i++) {
+        const x = (i * 137 + 31) % 790;
+        const y = (i * 83 + 18) % 490;
+ 
+        if ((y > 195 && y < 305) ||
+            (x > 345 && x < 455)) continue;
+ 
+        ctx.fillStyle = i % 2 ? "#ff87df" : "#ffe58a";
+        ctx.beginPath();
+        ctx.arc(x, y, 3, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+ 
+function drawCamper() {
+    ctx.save();
+    ctx.translate(camper.x, camper.y);
+ 
+    ctx.shadowBlur = 22;
+    ctx.shadowColor = "#ff68e6";
+ 
+    // Купе на кемпера
+    ctx.fillStyle = "#f6d5ff";
+    ctx.fillRect(-42, -28, 75, 47);
+ 
+    ctx.fillStyle = "#a954df";
+    ctx.fillRect(-42, -28, 75, 12);
+ 
+    // Прозорци
+    ctx.fillStyle = "#5eddf5";
+    ctx.fillRect(-28, -10, 19, 15);
+    ctx.fillRect(2, -10, 19, 15);
+ 
+    // Врата
+    ctx.fillStyle = "#39204e";
+    ctx.fillRect(14, 6, 14, 13);
+ 
+    ctx.shadowBlur = 0;
+ 
+    // Гуми
+    ctx.fillStyle = "#171522";
+    ctx.beginPath();
+    ctx.arc(-24, 23, 8, 0, Math.PI * 2);
+    ctx.arc(20, 23, 8, 0, Math.PI * 2);
+    ctx.fill();
+ 
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 12px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("MITKO", -4, -37);
+ 
+    ctx.restore();
+}
+ 
+function drawFairy(x, y, carryingTrucker) {
+    ctx.save();
+    ctx.translate(x, y + Math.sin(bob) * 5);
+ 
+    // Крила
+    ctx.globalAlpha = 0.8;
+    ctx.fillStyle = "#baf5ff";
+ 
+    ctx.beginPath();
+    ctx.ellipse(-13, -12, 11, 18, -0.5, 0, Math.PI * 2);
+    ctx.ellipse(13, -12, 11, 18, 0.5, 0, Math.PI * 2);
+    ctx.fill();
+ 
+    ctx.globalAlpha = 1;
+ 
+    // Рокля
+    ctx.fillStyle = "#ff68d2";
+    ctx.beginPath();
+    ctx.moveTo(-10, -2);
+    ctx.lineTo(10, -2);
+    ctx.lineTo(18, 19);
+    ctx.lineTo(-18, 19);
+    ctx.closePath();
+    ctx.fill();
+ 
+    // Ръце
+    ctx.strokeStyle = "#ffcfb7";
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(-9, 2);
+    ctx.lineTo(-19, 9);
+    ctx.moveTo(9, 2);
+    ctx.lineTo(19, 9);
+    ctx.stroke();
+ 
+    // Глава
+    ctx.fillStyle = "#ffcfb7";
+    ctx.beginPath();
+    ctx.arc(0, -13, 12, 0, Math.PI * 2);
+    ctx.fill();
+ 
+    // Коса
+    ctx.fillStyle = "#64321f";
+    ctx.beginPath();
+    ctx.arc(0, -18, 12, Math.PI, Math.PI * 2);
+    ctx.fill();
+ 
+    // Очи
+    ctx.fillStyle = "#242039";
+    ctx.beginPath();
+    ctx.arc(-4, -13, 1.5, 0, Math.PI * 2);
+    ctx.arc(4, -13, 1.5, 0, Math.PI * 2);
+    ctx.fill();
+ 
+    // Корона
+    ctx.fillStyle = "#ffe478";
+    ctx.beginPath();
+    ctx.moveTo(-8, -25);
+    ctx.lineTo(-7, -34);
+    ctx.lineTo(-1, -28);
+    ctx.lineTo(4, -36);
+    ctx.lineTo(8, -25);
+    ctx.closePath();
+    ctx.fill();
+ 
+    // Магически искри
+    ctx.fillStyle = "#fff6a5";
+    ctx.font = "16px Arial";
+    ctx.fillText("✦", -24, -27);
+    ctx.fillText("✧", 20, -20);
+ 
+    if (carryingTrucker) {
+        ctx.fillStyle = "#ffe478";
+        ctx.font = "bold 12px Arial";
+        ctx.fillText("🚛 +TIP", 0, -43);
+    }
+ 
+    ctx.restore();
+}
+ 
+function drawTrucker(t) {
+    ctx.save();
+    ctx.translate(t.x, t.y);
+ 
+    // Тяло
+    ctx.fillStyle = t.color;
+    ctx.fillRect(-10, -8, 20, 24);
+ 
+    // Глава
+    ctx.fillStyle = "#ffd1ad";
+    ctx.beginPath();
+    ctx.arc(0, -14, 9, 0, Math.PI * 2);
+    ctx.fill();
+ 
+    // Козирка
+    ctx.fillStyle = "#333047";
+    ctx.fillRect(-10, -23, 20, 5);
+ 
+    // Крака
+    ctx.fillStyle = "#222";
+    ctx.fillRect(-7, 16, 5, 5);
+    ctx.fillRect(3, 16, 5, 5);
+ 
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 12px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("HELP!", 0, -32);
+ 
+    ctx.restore();
+}
+ 
+function burst(x, y, text, color) {
+    particles.push({
+        x, y, text, color, life: 1
+    });
+}
+ 
+function update(dt) {
+    if (!running) return;
+ 
+    let dx = 0;
+    let dy = 0;
+ 
+    if (keys.ArrowLeft || keys.a) dx--;
+    if (keys.ArrowRight || keys.d) dx++;
+    if (keys.ArrowUp || keys.w) dy--;
+    if (keys.ArrowDown || keys.s) dy++;
+ 
+    if (dx && dy) {
+        dx *= 0.707;
+        dy *= 0.707;
+    }
+ 
+    player.x += dx * player.speed * dt;
+    player.y += dy * player.speed * dt;
+ 
+    player.x = Math.max(20, Math.min(780, player.x));
+    player.y = Math.max(40, Math.min(460, player.y));
+ 
+    bob += dt * 7;
+ 
+    // Възстановяване на магията
+    magic = Math.min(100, magic + 3 * dt);
+ 
+    // Поява на нови шофьори
+    spawnTimer += dt;
+ 
+    if (spawnTimer > 3.5) {
+        spawnTrucker();
+        spawnTimer = 0;
+    }
+ 
+    // Намиране на шофьор
+    if (!carrying && magic >= 15) {
+        for (let i = truckers.length - 1; i >= 0; i--) {
+            const t = truckers[i];
+ 
+            const distance = Math.hypot(
+                player.x - t.x,
+                player.y - t.y
+            );
+ 
+            if (distance < 28) {
+                carrying = true;
+                truckers.splice(i, 1);
+                magic -= 15;
+ 
+                burst(player.x, player.y - 30,
+                      "FRIEND!", "#baf5ff");
+ 
+                message.textContent =
+                    "Заведи шофьора до кемпера!";
+                break;
+            }
+        }
+    }
+ 
+    // Доставка до кемпера и бакшиш
+    if (carrying) {
+        const distance = Math.hypot(
+            player.x - camper.x,
+            player.y - camper.y
+        );
+ 
+        if (distance < 55) {
+            carrying = false;
+            rescued++;
+ 
+            const tip = 15 + Math.floor(Math.random() * 16);
+            money += tip;
+ 
+            burst(camper.x, camper.y - 40,
+                  "+€" + tip, "#ffe478");
+ 
+            message.textContent =
+                "Браво, Митко! Получи €" + tip + " бакшиш!";
+        }
+    }
+ 
+    // Искри
+    particles.forEach(p => {
+        p.y -= 30 * dt;
+        p.life -= dt;
+    });
+ 
+    particles = particles.filter(p => p.life > 0);
+ 
+    moneyEl.textContent = money;
+    rescuedEl.textContent = rescued;
+    magicEl.textContent = Math.floor(magic);
+}
+ 
+function drawParticles() {
+    particles.forEach(p => {
+        ctx.globalAlpha = Math.max(0, p.life);
+        ctx.fillStyle = p.color;
+        ctx.font = "bold 18px Arial";
+        ctx.fillText(p.text, p.x, p.y);
+    });
+ 
+    ctx.globalAlpha = 1;
+}
+ 
+function draw() {
+    drawBackground();
+    drawCamper();
+ 
+    truckers.forEach(drawTrucker);
+    drawFairy(player.x, player.y, carrying);
+    drawParticles();
+ 
+    if (!running) {
+        ctx.fillStyle = "#120b23dd";
+        ctx.fillRect(100, 175, 600, 140);
+ 
+        ctx.fillStyle = "#ff83e8";
+        ctx.textAlign = "center";
+        ctx.font = "bold 30px Arial";
+        ctx.fillText("MITKO'S MAGICAL ROAD TRIP", 400, 220);
+ 
+        ctx.fillStyle = "#fff";
+        ctx.font = "17px Arial";
+        ctx.fillText(
+            "Натисни НОВА ИГРА, за да започнеш!",
+            400, 260
+        );
+    }
+}
+ 
+function loop(timestamp) {
+    const dt = Math.min(
+        (timestamp - lastTime) / 1000 || 0,
+        0.04
+    );
+ 
+    lastTime = timestamp;
+ 
+    update(dt);
+    draw();
+ 
+    requestAnimationFrame(loop);
+}
+ 
+function startGame() {
+    money = 0;
+    rescued = 0;
+    magic = 100;
+    upgradeLevel = 1;
+ 
+    player.x = 100;
+    player.y = 250;
+    player.speed = 190;
+ 
+    carrying = false;
+    bob = 0;
+    truckers = [];
+    particles = [];
+    spawnTimer = 0;
+    running = true;
+ 
+    moneyEl.textContent = 0;
+    rescuedEl.textContent = 0;
+    magicEl.textContent = 100;
+ 
+    message.textContent =
+        "Намери шофьор и го заведи до кемпера!";
+}
+ 
+document.getElementById("start").addEventListener(
+    "click", startGame
+);
+ 
+document.getElementById("upgrade").addEventListener(
+    "click", () => {
+        if (money >= 50) {
+money -= 50;
+            upgradeLevel++;
+            player.speed += 35;
+            moneyEl.textContent = money;
+ 
+            message.textContent =
+                "✨ Крилата са по-бързи! Ниво " + upgradeLevel;
+        } else {
+            message.textContent =
+                "Трябват ти €50 за по-бързи крила!";
+        }
+    }
+);
+ 
+// Клавиатура
+window.addEventListener("keydown", e => {
+    keys[e.key] = true;
+ 
+    if ([
+        "ArrowUp", "ArrowDown",
+        "ArrowLeft", "ArrowRight", " "
+    ].includes(e.key)) {
+        e.preventDefault();
+    }
+});
+ 
+window.addEventListener("keyup", e => {
+    keys[e.key] = false;
+});
+ 
+// Бутоните за телефон
+document.querySelectorAll("[data-dir]").forEach(button => {
+    const dir = button.dataset.dir;
+ 
+    const map = {
+        up: "ArrowUp",
+        down: "ArrowDown",
+        left: "ArrowLeft",
+        right: "ArrowRight"
+    };
+ 
+    const key = map[dir];
+ 
+    button.addEventListener("pointerdown", e => {
+        e.preventDefault();
+        keys[key] = true;
+        button.setPointerCapture(e.pointerId);
+    });
+ 
+    function release() {
+        keys[key] = false;
+    }
+ 
+    button.addEventListener("pointerup", release);
+    button.addEventListener("pointercancel", release);
+    button.addEventListener("lostpointercapture", release);
+});
+ 
+// Стартираме анимацията
+requestAnimationFrame(loop);
+</script>
+ 
+</body>
+</html>
+ 
